@@ -1,6 +1,6 @@
-#!/bin/bash
+#!/opt/bin/bash
 
-# Copyright (C) 2016 Matthew D. Mower
+# Copyright (C) 2016 Matthew D. Mower, Zheng SHAO
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,6 +15,10 @@
 # limitations under the License.
 
 # Defines
+
+url_encode() {
+    echo $(python -c "import urllib; print urllib.quote('''$1''')")
+}
 
 CONFIGFILE="$( cd "$( dirname "$0" )" && pwd )/config"
 
@@ -32,8 +36,10 @@ fi
 
 USERAGENT="Bash No-IP Updater/0.9 "$USERNAME
 
-USERNAME=$(echo -ne $USERNAME | od -A n -t x1 | tr -d '\n' | sed 's/ /%/g')
-PASSWORD=$(echo -ne $PASSWORD | od -A n -t x1 | tr -d '\n' | sed 's/ /%/g')
+#USERNAME=$(echo -ne $USERNAME | od -A n -t x1 | tr -d '\n' | sed 's/ /%/g')
+#PASSWORD=$(echo -ne $PASSWORD | od -A n -t x1 | tr -d '\n' | sed 's/ /%/g')
+USERNAME=$(url_encode $USERNAME | tr -d '\n')
+PASSWORD=$(url_encode $PASSWORD | tr -d '\n')
 
 if [ ! -d $LOGDIR ]; then
     mkdir -p $LOGDIR
@@ -89,23 +95,11 @@ if [ -e $LOGFILE ] && tail -n1 $LOGFILE | grep -q -m1 '(abuse)'; then
     exit 1
 fi
 
-if [ -e $LOGFILE ] && tac $LOGFILE | grep -q -m1 '(911)'; then
-    NINELINE=$(tac $LOGFILE | grep -m1 '(911)')
-    LASTNL=$([[ $NINELINE =~ \[(.*?)\] ]] && echo "${BASH_REMATCH[1]}")
-    LASTCONTACT=$(date -d "$LASTNL" '+%s')
-    if [ `expr $NOW - $LASTCONTACT` -lt 1800 ]; then
-        LOGDATE="[$(date +'%Y-%m-%d %H:%M:%S')]"
-        LOGLINE="Response code 911 received less than 30 minutes ago; canceling request."
-        echo $LOGLINE
-        echo "$LOGDATE $LOGLINE" >> $LOGFILE
-        exit 1
-    fi
-fi
-
-GET_IP_URLS[0]="http://icanhazip.com"
-GET_IP_URLS[1]="http://wtfismyip.com/text"
-GET_IP_URLS[2]="http://nst.sourceforge.net/nst/tools/ip.php"
-GET_IP_URLS[3]="http://checkip.dyndns.org"
+GET_IP_URLS[0]="http://ident.me"
+GET_IP_URLS[1]="http://wgetip.com"
+GET_IP_URLS[2]="http://icanhazip.com"
+GET_IP_URLS[3]="http://wtfismyip.com/text"
+GET_IP_URLS[4]="http://ipecho.net/plain"
 
 GIP_INDEX=0
 while [ -n "${GET_IP_URLS[$GIP_INDEX]}" ] && ! valid_ip $NEWIP; do
@@ -118,13 +112,13 @@ if ! valid_ip $NEWIP; then
     LOGLINE="Could not find current IP"
     echo $LOGLINE
     echo "$LOGDATE $LOGLINE" >> $LOGFILE
+    /sbin/ddns_custom_updated 0
     exit 1
 fi
 
 RESPONSE=$(curl -s -k --user-agent "$USERAGENT" "https://$USERNAME:$PASSWORD@dynupdate.no-ip.com/nic/update?hostname=$HOST&myip=$NEWIP")
-RESPONSE=$(echo $RESPONSE | tr -cd "[:print:]")
+RESPONSE_A=$(echo $RESPONSE | head -1 | awk '{ print $1 }')
 
-RESPONSE_A=$(echo $RESPONSE | awk '{ print $1 }')
 case $RESPONSE_A in
     "good")
         RESPONSE_B=$(echo $RESPONSE | awk '{ print $2 }')
@@ -164,4 +158,5 @@ echo $NEWIP > $IPFILE
 echo $LOGLINE
 echo "$LOGDATE $LOGLINE" >> $LOGFILE
 
+/sbin/ddns_custom_updated 1
 exit 0
